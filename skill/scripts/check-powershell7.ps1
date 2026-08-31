@@ -25,7 +25,15 @@ $global = @(Get-GlobalPwshPath)
 if ($global.Count -gt 0) {
     foreach ($h in $global) { "global  : $($h.Path)  (v$(Get-PwshVersion $h.Path))  [scope=$($h.Scope), via=$($h.Via)]" }
 } else {
-    'global  : 否 -- 未找到任何全局安装(Program Files / WindowsApps / 注册表 / PATH)'
+    'global  : 否 -- 未找到任何全局安装(Program Files / WindowsApps / 注册表 / Appx / PATH)'
+}
+
+# MSIX 包在位但执行别名丢失时, pwsh 在 PATH 上不可达, 表现得像完全没装。
+if (@($global | Where-Object { $_.Via -eq 'appx' }).Count -gt 0 -and
+    -not (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'))) {
+    $loc = (Get-AppxPackage -Name 'Microsoft.PowerShell*' | Select-Object -First 1).InstallLocation
+    '          注意: MSIX 包在位, 但执行别名缺失 -> pwsh 不在 PATH 上。重新注册:'
+    "          Add-AppxPackage -Register `"$loc\AppxManifest.xml`" -DisableDevelopmentMode"
 }
 
 '=== 2b) agent 私有副本(仅参考，不算全局) ==='

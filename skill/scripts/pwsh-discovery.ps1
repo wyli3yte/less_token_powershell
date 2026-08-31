@@ -60,6 +60,13 @@ function Get-GlobalPwshPath {
         }
     }
 
+    # MSIX/Store installs write no uninstall entry, and their execution alias can go missing.
+    foreach ($p in @(Get-AppxPackage -Name 'Microsoft.PowerShell*' -ErrorAction SilentlyContinue)) {
+        if (-not $p.InstallLocation) { continue }
+        $exe = Join-Path $p.InstallLocation 'pwsh.exe'
+        if (Test-Path -LiteralPath $exe) { $hits += New-PwshHit -Path $exe -Scope 'user' -Via 'appx' }
+    }
+
     # Anything already resolvable as `pwsh` counts too, as long as it is not 5.1 and not private.
     foreach ($c in @(Get-Command pwsh -All -ErrorAction SilentlyContinue)) {
         if ($c.Source -and $c.Source -notmatch 'WindowsPowerShell') {
@@ -68,8 +75,9 @@ function Get-GlobalPwshPath {
     }
 
     $hits = @($hits | Where-Object { -not (Test-IsAgentPrivatePwsh $_.Path) })
-    # Prefer machine scope, and keep one entry per path.
-    return @($hits | Sort-Object @{ E = { $_.Scope -ne 'machine' } }, Path |
+    # Prefer machine scope, then path stability: a versioned Appx dir moves on every Store update.
+    $rank = @{ 'program-files' = 0; 'program-files-x86' = 1; 'registry' = 2; 'winget-user' = 3; 'windowsapps' = 4; 'path' = 5; 'appx' = 6 }
+    return @($hits | Sort-Object @{ E = { $_.Scope -ne 'machine' } }, @{ E = { $rank[$_.Via] } }, Path |
                      Group-Object Path | ForEach-Object { $_.Group[0] })
 }
 
