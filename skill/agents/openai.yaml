@@ -1,0 +1,3 @@
+interface:
+  display_name: "Windows PowerShell 7 Setup"
+  short_description: "Detect/verify PowerShell 7, install or switch to it, and apply safe Windows shell tooling"
