@@ -67,6 +67,20 @@ function Get-GlobalPwshPath {
         if (Test-Path -LiteralPath $exe) { $hits += New-PwshHit -Path $exe -Scope 'user' -Via 'appx' }
     }
 
+    # The pwsh MSI leaves ARP InstallLocation empty; the persisted PATH catches those installs.
+    $pathRoots = @(
+        @{ K = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'; Scope = 'machine'; Via = 'machine-path' },
+        @{ K = 'HKCU:\Environment';                                                                              Scope = 'user';    Via = 'user-path' }
+    )
+    foreach ($r in $pathRoots) {
+        $e = Get-ItemProperty $r.K -ErrorAction SilentlyContinue
+        if (-not $e -or -not $e.Path) { continue }
+        foreach ($dir in @($e.Path -split ';' | Where-Object { $_ })) {
+            $exe = Join-Path $dir 'pwsh.exe'
+            if (Test-Path -LiteralPath $exe) { $hits += New-PwshHit -Path $exe -Scope $r.Scope -Via $r.Via }
+        }
+    }
+
     # Anything already resolvable as `pwsh` counts too, as long as it is not 5.1 and not private.
     foreach ($c in @(Get-Command pwsh -All -ErrorAction SilentlyContinue)) {
         if ($c.Source -and $c.Source -notmatch 'WindowsPowerShell') {
@@ -76,7 +90,7 @@ function Get-GlobalPwshPath {
 
     $hits = @($hits | Where-Object { -not (Test-IsAgentPrivatePwsh $_.Path) })
     # Prefer machine scope, then path stability: a versioned Appx dir moves on every Store update.
-    $rank = @{ 'program-files' = 0; 'program-files-x86' = 1; 'registry' = 2; 'winget-user' = 3; 'windowsapps' = 4; 'path' = 5; 'appx' = 6 }
+    $rank = @{ 'program-files' = 0; 'program-files-x86' = 1; 'machine-path' = 2; 'registry' = 3; 'winget-user' = 4; 'user-path' = 5; 'windowsapps' = 6; 'path' = 7; 'appx' = 8 }
     return @($hits | Sort-Object @{ E = { $_.Scope -ne 'machine' } }, @{ E = { $rank[$_.Via] } }, Path |
                      Group-Object Path | ForEach-Object { $_.Group[0] })
 }
