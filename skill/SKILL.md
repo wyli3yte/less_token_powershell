@@ -1,12 +1,14 @@
 ---
-name: windows-powershell7-setup
+name: less-token-powershell
 description: Use when asked to check or upgrade the PowerShell version on Windows, when a Windows command fails with ParserError or an unrecognized statement separator, when an agent must confirm whether it runs PowerShell 7 or 5.1, or when Windows shell behavior differs from what the agent expects.
 ---
 
-# Windows PowerShell 7 Setup
+# Less PowerShell Token Tax
 
 ## Purpose
-On Windows "PowerShell" is ambiguous: the system default `powershell.exe` is Windows PowerShell 5.1 (edition `Desktop`), while modern tooling wants PowerShell 7 (`pwsh`, edition `Core`). The goal is a **global** PowerShell 7 — one install that serves every agent and every terminal — and then an agent that actually uses it.
+On Windows "PowerShell" is ambiguous: the system default `powershell.exe` is Windows PowerShell 5.1 (edition `Desktop`), while modern tooling wants PowerShell 7 (`pwsh`, edition `Core`). Every PS7-only command that fails on 5.1 is a round-trip that costs tokens and returns nothing, so the point is not tidiness — it is removing a recurring, per-session tax.
+
+The goal is a **global** PowerShell 7 — one install that serves every agent and every terminal — and then an agent that actually uses it.
 
 ## Platform adaptation
 This document is written against Codex paths and settings. The scripts themselves are host-aware

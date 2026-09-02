@@ -17,7 +17,7 @@ if ($Agent -eq 'all' -and $contexts.Count -eq 0) {
 }
 
 foreach ($ctx in $contexts) {
-    $dest = Join-Path $ctx.SkillDir 'windows-powershell7-setup'
+    $dest = Join-Path $ctx.SkillDir 'less-token-powershell'
 
     if ($Clean -and (Test-Path -LiteralPath $dest)) {
         Remove-Item -LiteralPath $dest -Recurse -Force
