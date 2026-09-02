@@ -1,11 +1,10 @@
 <div align="center">
 
-# Windows PowerShell 7 Setup
+# Less PowerShell Token Tax
 
-**Your agent is running Windows PowerShell 5.1 right now. It will not tell you.**
+**Every PowerShell 7 command that dies on Windows PowerShell 5.1 costs a retry — and a retry costs tokens. This skill deletes the cause, not the symptom.**
 
-One install puts a **global** PowerShell 7 on the machine, switches the agent onto it, and proves it —
-because an agent's bundled copy is not an install.
+It detects the PowerShell each agent actually uses, gets one **global** PowerShell 7 onto the machine, and switches Codex, CodeBuddy Code and Claude Code onto it from a single copy. One install, every agent, every terminal: `&&`, `??` and UTF-8 output just parse, and the retry tax stops.
 
 <p>
   <a href="https://github.com/wyli3yte/less_token_powershell/stargazers"><img src="https://img.shields.io/github/stars/wyli3yte/less_token_powershell?style=flat&color=yellow" alt="Stars"></a>
@@ -36,16 +35,17 @@ because an agent's bundled copy is not an install.
 | Minimum shell to run it | **Windows PowerShell 5.1** — the scripts work on the thing they diagnose |
 | The pass condition | **a global pwsh 7**, never an agent's private copy |
 | Time to install | one command, under a minute |
+| What it removes | the retry tax — PS7-only syntax failing on 5.1, charset guesswork, false "already installed" verdicts |
 
 ## The problem
 
 Ask three agents on one Windows machine "which PowerShell are you on?" and you get three different answers — and two of them are wrong in a way that looks like success.
 
-| State | What you see | Verdict |
-|---|---|---|
-| System **5.1** (the default for most agents) | `标记"&&"不是此版本中的有效语句分隔符。` on the first PS7-only command | **not done** |
-| An agent's **bundled** pwsh 7 (Codex ships one) | everything works — until that agent upgrades and the path disappears | **not done** |
-| A **global** pwsh 7 | PS7 syntax parses, the path is stable, every agent and terminal benefits | **done** |
+| State | What you see | What it costs you | Verdict |
+|---|---|---|---|
+| System **5.1** (the default for most agents) | `标记"&&"不是此版本中的有效语句分隔符。` on the first PS7-only command | every PS7-only command is a wasted round-trip: error text in, no result out, retry | **not done** |
+| An agent's **bundled** pwsh 7 (Codex ships one) | everything works — until that agent upgrades and the path disappears | nothing today, the whole session tomorrow when the path vanishes mid-task | **not done** |
+| A **global** pwsh 7 | PS7 syntax parses, the path is stable, every agent and terminal benefits | nothing — the tax is gone | **done** |
 
 > [!IMPORTANT]
 > **A bundled pwsh 7 is not a global install.** It lives in one agent's runtime cache, it is versioned by that agent, and it vanishes when the agent upgrades. Counting it as done produces a false "already installed" verdict — and skips the install this skill exists to perform.
@@ -66,7 +66,9 @@ Every step is a decision the script makes for you, with a paste-ready value for 
 
 ## Why this skill?
 
-Because "the PowerShell version" is not one fact on a Windows machine. Verified on a real box: CodeBuddy Code's PowerShell tool resolves the system `powershell.exe` (5.1.26100.9168 / `Desktop`), while Codex, on the same machine, runs its own bundled pwsh 7.6.4 out of `~/.cache/codex-runtimes`. Same box, same question, two answers — and a scan of that machine's session history found **3 of 14** CodeBuddy sessions had already died on PS7-only syntax.
+Because "the PowerShell version" is not one fact on a Windows machine — and every wrong answer is billed per retry. A `ParserError` is not a cheap failure: the error text, the diagnosis, the rewrite and the re-run all land in the context window, and the command itself produced nothing. Fix the shell once and the whole class of retries disappears.
+
+Verified on a real box: CodeBuddy Code's PowerShell tool resolves the system `powershell.exe` (5.1.26100.9168 / `Desktop`), while Codex, on the same machine, runs its own bundled pwsh 7.6.4 out of `~/.cache/codex-runtimes`. Same box, same question, two answers — and a scan of that machine's session history found **3 of 14** CodeBuddy sessions had already paid the tax on PS7-only syntax.
 
 | Principle | Implementation |
 |---|---|
@@ -177,7 +179,7 @@ sandbox/权限拒绝 (deny/ACL)          : 2 个文件命中
     (未找到 *.jsonl 会话日志；确认该 agent 是否在本机用过，或用 -AgentHome 指定目录)
 ```
 
-3 of CodeBuddy's 14 sessions hit PS7-on-5.1 syntax failures — sessions spent retrying commands that could never parse.
+3 of CodeBuddy's 14 sessions hit PS7-on-5.1 syntax failures — sessions that spent turns retrying commands which could never parse, each retry adding error text and a rewrite to the context window for zero progress.
 
 ### With the skill
 
@@ -206,6 +208,7 @@ $PSVersionTable.PSVersion.ToString() + ' / ' + $PSVersionTable.PSEdition; 1 -eq 
 - A Windows command fails with `ParserError`, `MissingEndCurlyBrace`, or `is not a valid statement separator in this version`
 - You need to know which PowerShell your agent is actually running
 - `&&`, `||`, `??`, `?.` or a ternary works in your terminal but not in the agent
+- You want to cut token spend on Windows: every avoided `ParserError` is a whole retry cycle you do not pay for
 - Two agents disagree about what "the PowerShell version" is
 - You are about to install PowerShell 7 and want the install to serve every agent, not one
 
