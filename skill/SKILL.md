@@ -1,6 +1,6 @@
 ---
 name: less-token-powershell
-description: Use when asked to check or upgrade the PowerShell version on Windows, when a Windows command fails with ParserError or an unrecognized statement separator, when an agent must confirm whether it runs PowerShell 7 or 5.1, or when Windows shell behavior differs from what the agent expects.
+description: Use when a Windows command fails with ParserError, MissingEndCurlyBrace, 'is not a valid statement separator in this version' / '不是此版本中的有效语句分隔符', or Exit Code 1 despite working in a terminal; when an agent must confirm whether it runs PowerShell 7 (Core) or 5.1 (Desktop); when PS7-only syntax (&&, ||, ??, ternary) behaves differently in the agent; or when asked to check, install or switch PowerShell on Windows.
 ---
 
 # Less PowerShell Token Tax
@@ -9,6 +9,13 @@ description: Use when asked to check or upgrade the PowerShell version on Window
 On Windows "PowerShell" is ambiguous: the system default `powershell.exe` is Windows PowerShell 5.1 (edition `Desktop`), while modern tooling wants PowerShell 7 (`pwsh`, edition `Core`). Every PS7-only command that fails on 5.1 is a round-trip that costs tokens and returns nothing, so the point is not tidiness — it is removing a recurring, per-session tax.
 
 The goal is a **global** PowerShell 7 — one install that serves every agent and every terminal — and then an agent that actually uses it.
+
+## Announce on trigger
+Open the **first** reply of an activation with one line, then answer normally:
+`[less-token-powershell] 触发: <what you saw> — <one-line conclusion>`
+Only when the skill actually does something (detect, install, switch, measure). Skip it on later
+turns and when you are merely answering a PowerShell question. ~15 tokens, once, versus thousands
+per retry it prevents.
 
 ## Platform adaptation
 This document is written against Codex paths and settings. The scripts themselves are host-aware
@@ -39,8 +46,10 @@ For another host, read its mapping file and substitute:
 - `scripts/check-powershell7.ps1` — version detection + next-action decision, host-aware.
 - `scripts/pwsh-discovery.ps1` — library: `Get-GlobalPwshPath` / `Get-BundledPwshPath` / `Get-PwshVersion`. Global and bundled are discovered separately and never merged.
 - `scripts/analyze-powershell-history.ps1` — scan agent run history for PowerShell errors and token waste. `-Agent all` covers every host on the machine; `-Days N` bounds the window.
+- `-Tokens` (opt-in, off by default) adds a token ledger measured from the transcripts' real `usage` fields — not an estimate. It streams JSON, so a big codex tree takes minutes; `-MaxFileMB 256` (default) skips huge files and says so, `-MaxFileMB 0` forces them. Output grows by ~270 tokens and surfaces the waste it measures.
 - `scripts/srg.ps1` — safe ripgrep wrapper (argv passing, no shell escaping, bounded output). Resolves `rg` from PATH, then from a host's vendored copy.
-- `scripts/agent-context.ps1` — library: which host is running, and where its skills/logs live. All host-specific paths live here.
+- `scripts/token-attribution.ps1` — library: `Test-PsFailureLine` / `Get-TokenAttribution` / `Get-SkillSelfCost`. Turns transcripts into a token ledger. Host usage fields differ (codex per-turn delta, claude per request, codebuddy **cumulative counter** that must be diffed, never summed).
+- `scripts/agent-context.ps1` — library: which host is running, and where its skills/logs live. All host-specific paths live here. Also `Write-SkillBanner`, the one-line marker the scripts print; silence it with `LESS_TOKEN_POWERSHELL_QUIET=1`.
 - `scripts/force-utf8-output.ps1` — library: pins stdout to UTF-8 so 5.1 output does not get charset-guessed.
 
 ## Key facts
@@ -51,6 +60,7 @@ For another host, read its mapping file and substitute:
 
 - A `.ps1` containing non-ASCII must be saved as **UTF-8 with BOM**. Without the BOM, 5.1 decodes it in the ANSI code page and fails with `ParserError` / `MissingEndCurlyBrace` — including the scripts meant to diagnose 5.1.
 - 5.1 writes stdout in the console code page, not UTF-8. Dot-source `scripts/force-utf8-output.ps1` in any script that prints non-ASCII.
+- Run these scripts **in-process** (`& script.ps1`), not as `powershell.exe -File script.ps1 | ...`. A 5.1 child writes UTF-8, but a parent session still on CP936 mis-decodes those redirected bytes and the report comes back as mojibake — the very charset-guessing this skill exists to end. A global PS7 is what makes the in-process path the default.
 - `is not a valid statement separator in this version` (zh-CN: `不是此版本中的有效语句分隔符`) is the signature of PS7-only syntax (`&&`, `||`, `??`, ternary) running on 5.1 — a direct trigger for this skill.
 
 ## Constraints

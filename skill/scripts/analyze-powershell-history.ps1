@@ -2,12 +2,20 @@
 param(
     [int]$Days = 30,
     [ValidateSet('auto', 'codex', 'codebuddy', 'claude', 'all')][string]$Agent = 'auto',
-    [Alias('CodexHome')][string]$AgentHome = ''
+    [Alias('CodexHome')][string]$AgentHome = '',
+    [switch]$Tokens,                 # opt-in: streaming JSON pass, slow on a big codex tree
+    [int]$MaxFileMB = 256            # 0 = no limit
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
 . (Join-Path $PSScriptRoot 'agent-context.ps1')
 . (Join-Path $PSScriptRoot 'force-utf8-output.ps1')
+. (Join-Path $PSScriptRoot 'token-attribution.ps1')
+
+$contexts = Get-AgentContext -Agent $Agent -AgentHome $AgentHome
+$bannerInfo = @("days=$Days")
+if ($Tokens) { $bannerInfo += 'tokens=on' }
+Write-SkillBanner -Script 'analyze-powershell-history.ps1' -Agent (Get-RunningAgentName) -Info $bannerInfo
 
 # 平台无关的 PowerShell 症状：任何 agent 的日志里都长这样
 $basePatterns = [ordered]@{
@@ -29,8 +37,12 @@ $agentPatterns = @{
 }
 
 $since = (Get-Date).AddDays(-$Days)
-$contexts = Get-AgentContext -Agent $Agent -AgentHome $AgentHome
 $grand = @{}
+$tokGrand = @{ Turns = 0; FailTurns = 0; Upper = 0; Retry = 0; Truncated = 0; OverWindow = 0 }
+$self = $null
+if ($Tokens) {
+    $self = Get-SkillSelfCost -SkillDir (Split-Path -Parent $PSScriptRoot) -Agent $contexts[0].Name
+}
 
 foreach ($ctx in $contexts) {
     $patterns = [ordered]@{}
@@ -62,6 +74,40 @@ foreach ($ctx in $contexts) {
         if (-not $grand.ContainsKey($k)) { $grand[$k] = 0 }
         $grand[$k] += $counts[$k]
     }
+
+    if ($Tokens) {
+        $tk = Get-TokenAttribution -Files $sessions -Agent $ctx.Name -MaxFileMB $MaxFileMB
+        $tokGrand.Turns += $tk.Turns
+        $tokGrand.FailTurns += $tk.FailTurns
+        $tokGrand.Upper += $tk.UpperBound
+        $tokGrand.Retry += $tk.Retry
+        $tokGrand.Truncated += $tk.Truncated
+        $tokGrand.OverWindow += $tk.OverWindow
+        '--- token 归因 (来自 transcript 的真实 usage 字段) ---'
+        '    {0,-28}: {1}' -f '扫描 turn 总数', $tk.Turns
+        '    {0,-28}: {1}' -f '失败 turn', $tk.FailTurns
+        '    {0,-28}: {1}  [实测/上限, 含上下文重发]' -f '(a) 归因上限(失败 turn 全计)', ('{0:N0}' -f $tk.UpperBound)
+        '    {0,-28}: {1}  [实测]' -f '(b) 重试实测(失败后至恢复前)', ('{0:N0}' -f $tk.Retry)
+        '    {0,-28}: 未收敛 {1} 次 | 超窗截断 {2} 次' -f '未计入', $tk.Truncated, $tk.OverWindow
+        '    {0,-28}: 超大文件 {1} 个 | 超长行 {2} | 解析失败 {3}' -f '跳过', $tk.SkipBig, $tk.SkipLong, $tk.SkipParse
+    }
+}
+
+if ($Tokens) {
+    '=== token 合计 ==='
+    '    turn 总数    : {0}' -f $tokGrand.Turns
+    '    失败 turn    : {0}' -f $tokGrand.FailTurns
+    '    (a) 归因上限 : {0}  [实测/上限, 含上下文重发]' -f ('{0:N0}' -f $tokGrand.Upper)
+    '    (b) 重试实测 : {0}  [实测]' -f ('{0:N0}' -f $tokGrand.Retry)
+    '    未计入       : 未收敛 {0} 次 | 超窗截断 {1} 次' -f $tokGrand.Truncated, $tokGrand.OverWindow
+    '    口径         : (a) 是失败那一轮, (b) 是失败后到恢复前的轮次 —— 两组不同的 turn; 重试会重发整个上下文, 故 (b) 常大于 (a)'
+    if ($self) {
+        '    本 skill 自身成本 : {0}  [估算: {1}; CJK 1.5 + ASCII 4 字符/token]' -f ('{0:N0}' -f $self.Tokens), $self.Files
+        if ($self.Tokens -gt 0 -and $tokGrand.Retry -gt 0) {
+            '    对比: 每次激活本 skill 约 {0} tokens(估算); 实测已浪费 {1} -> 相当于 {2} 次激活' -f ('{0:N0}' -f $self.Tokens), ('{0:N0}' -f $tokGrand.Retry), ('{0:N0}' -f [Math]::Round($tokGrand.Retry / $self.Tokens))
+        }
+    }
+    ''
 }
 
 '=== 建议 ==='

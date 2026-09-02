@@ -32,6 +32,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'force-utf8-output.ps1')
+. (Join-Path $PSScriptRoot 'agent-context.ps1')
+Write-SkillBanner -Script 'srg.ps1'
 
 # 空路径会让 rg 转去读 stdin, 在 agent 里等于永久阻塞且零输出。
 if ([string]::IsNullOrWhiteSpace($Path)) {

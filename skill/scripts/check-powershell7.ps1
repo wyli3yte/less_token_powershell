@@ -7,6 +7,7 @@ param(
 . (Join-Path $PSScriptRoot 'pwsh-discovery.ps1')
 . (Join-Path $PSScriptRoot 'force-utf8-output.ps1')
 $ctx = (Get-AgentContext -Agent $Agent)[0]
+Write-SkillBanner -Script 'check-powershell7.ps1' -Agent $ctx.Name
 
 $me = Get-Process -Id $PID
 $vi = $me.MainModule.FileVersionInfo

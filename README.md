@@ -102,6 +102,7 @@ powershell -File skill\scripts\check-powershell7.ps1
 It prints the agent's own shell, every **global** pwsh 7 (the verdict), any **bundled** copy (reference only), and the next action:
 
 ```text
+[less-token-powershell] check-powershell7.ps1 | host=codebuddy
 === 1) Agent 实际使用的 shell(本进程) ===
 Agent  : codebuddy
 Version: 7.6.5
@@ -139,7 +140,46 @@ NEXT: 全局 PowerShell 7 已就位，但本 agent 仍在跑 5.1 -> 把 agent �
 | `analyze-powershell-history.ps1` | You want to know what 5.1 already cost you. `-Agent all -Days 30` scans every host. |
 | `srg.ps1` | You need ripgrep with argv passing and bounded output: `-Literal`, `-OutFile`, `-Count`, `-Files`. |
 
-All three take `-Agent auto|codex|codebuddy|claude|all`.
+All three take `-Agent auto|codex|codebuddy|claude|all`, and all three print a one-line
+`[less-token-powershell]` banner so a transcript shows the skill ran (`LESS_TOKEN_POWERSHELL_QUIET=1`
+silences it).
+
+### Measuring the tax in tokens
+
+`-Tokens` turns the scan into a ledger, measured from the **real `usage` fields in the transcripts** —
+the hosts record them, so nothing is estimated:
+
+```powershell
+powershell -File skill\scripts\analyze-powershell-history.ps1 -Agent all -Days 30 -Tokens
+```
+
+```text
+--- token 归因 (来自 transcript 的真实 usage 字段) ---
+    扫描 turn 总数                  : 11637
+    失败 turn                     : 231
+    (a) 归因上限(失败 turn 全计)        : 29,563,030  [实测/上限, 含上下文重发]
+    (b) 重试实测(失败后至恢复前)           : 19,285,816  [实测]
+    未计入                         : 未收敛 4 次 | 超窗截断 148 次
+    跳过                          : 超大文件 0 个 | 超长行 30 | 解析失败 0
+=== token 合计 ===
+    本 skill 自身成本 : 1,346  [估算: SKILL.md; CJK 1.5 + ASCII 4 字符/token]
+    对比: 每次激活本 skill 约 1,346 tokens(估算); 实测已浪费 19,285,816 -> 相当于 14,328 次激活
+```
+
+- (a) counts the turns that failed; (b) counts the turns **after** a failure until the next clean
+  turn — two different sets of turns, and (b) is often larger because every retry re-sends the
+  context. Only (b) is the recurring waste; (a) is an upper bound.
+- The three hosts report usage differently: codex gives a per-turn delta, claude per request,
+  codebuddy a **cumulative counter** that must be diffed. Summing codebuddy's counter inflates the
+  total by orders of magnitude — the library handles it, do not "simplify" it away.
+- Only recognisably PowerShell failures count (`ParserError`, `CategoryInfo`, a non-zero exit with
+  `powershell`/`pwsh` in the command). A failed `git` or `npm` command is not this skill's tax.
+
+### The feature does not cost tokens when you are not using it
+
+`-Tokens` is opt-in. Measured on this machine: the default scan's output is **259 tokens** to read,
+with `-Tokens` **530** (+271), and the extra runtime is seconds. Files larger than `-MaxFileMB`
+(default 256, `0` disables) are skipped and counted, so a 6.8 GB codex tree stays usable.
 
 ## Proof: before and after on a real machine
 
@@ -209,6 +249,7 @@ $PSVersionTable.PSVersion.ToString() + ' / ' + $PSVersionTable.PSEdition; 1 -eq 
 - You need to know which PowerShell your agent is actually running
 - `&&`, `||`, `??`, `?.` or a ternary works in your terminal but not in the agent
 - You want to cut token spend on Windows: every avoided `ParserError` is a whole retry cycle you do not pay for
+- You want the waste as a number, not an anecdote — `analyze-powershell-history.ps1 -Tokens`
 - Two agents disagree about what "the PowerShell version" is
 - You are about to install PowerShell 7 and want the install to serve every agent, not one
 
@@ -284,6 +325,7 @@ Because CodeBuddy Code is a Claude Code fork and **also** sets `CLAUDE_SESSION_I
 │   │   ├── check-powershell7.ps1          # verdict + next action
 │   │   ├── analyze-powershell-history.ps1 # scan past sessions for PS failures
 │   │   ├── srg.ps1                        # safe ripgrep wrapper (argv, bounded output)
+│   │   ├── token-attribution.ps1          # token ledger: failure test, turns, self-cost (ASCII only, no BOM)
 │   │   ├── pwsh-discovery.ps1             # global vs bundled discovery (ASCII only, no BOM)
 │   │   ├── agent-context.ps1              # host detection + paths (ASCII only, no BOM)
 │   │   └── force-utf8-output.ps1          # pin stdout to UTF-8 (ASCII only, no BOM)

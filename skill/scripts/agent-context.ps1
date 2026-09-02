@@ -94,3 +94,21 @@ function Get-AgentContext {
 
     return , (New-AgentContext -Name $name -HomeOverride $AgentHome)
 }
+
+# One-line identity marker, so a transcript shows this skill actually ran. ASCII only: '|', not U+00B7.
+# Silence it with $env:LESS_TOKEN_POWERSHELL_QUIET = '1'.
+function Write-SkillBanner {
+    param(
+        [Parameter(Mandatory)][string]$Script,
+        [string]$Agent = '',
+        [string[]]$Info = @()
+    )
+    if ($env:LESS_TOKEN_POWERSHELL_QUIET -eq '1') { return }
+    if (-not $Agent) { $Agent = Get-RunningAgentName }
+    if (-not $Agent) { $Agent = 'auto' }
+    $parts = New-Object System.Collections.ArrayList
+    $parts.Add("[less-token-powershell] $Script") | Out-Null
+    $parts.Add("host=$Agent") | Out-Null
+    foreach ($i in $Info) { if ($i) { $parts.Add($i) | Out-Null } }
+    Write-Output ($parts -join ' | ')
+}
