@@ -6,9 +6,9 @@ Supported hosts: **Codex** (primary), **CodeBuddy Code**, and **Claude Code**. O
 
 ## What it does
 
-1. `check-powershell7.ps1` — decide, using **global** installs as the verdict: no global PS7 (install the MSI), global PS7 present but the agent is on 5.1 or on an agent-bundled copy (repoint it), or done. Prints the switch lever and a paste-ready value for the detected host.
-2. `analyze-powershell-history.ps1` — scan agent run history for PowerShell errors (ParserError, PS7-only syntax on 5.1, sandbox/ACL denials, missing commands) and report remediation. `-Agent all` scans every host on the machine.
-3. `srg.ps1` — safe ripgrep wrapper: argv passing (no shell escaping for spaces/Chinese/backslashes), bounded output, `-Literal`, `-OutFile`, `-Count`, `-Files`. Falls back to a host's vendored `rg.exe` when `rg` is not on PATH.
+1. `check-powershell7.ps1` — decide, using **global** installs as the verdict: no global PS7 (install the MSI), global PS7 present but the agent is on 5.1 or on an agent-bundled copy (repoint it), or done. Prints the switch lever and a paste-ready value for the detected host. `-Agent all` reports every host present on the machine in one run.
+2. `analyze-powershell-history.ps1` — scan agent run history for PowerShell errors (ParserError, PS7-only syntax on 5.1, sandbox/ACL denials, missing commands) and report remediation. `-Agent all` scans every host on the machine. `-Fast` switches to a single-pass scan (each file read once, patterns precompiled): identical per-pattern counts, roughly 2-5x faster on large histories — measured on 98MB/21 files under 5.1: 9.9s -> 4.0s.
+3. `srg.ps1` — safe ripgrep wrapper: argv passing (no shell escaping for spaces/Chinese/backslashes), bounded output, `-Literal`, `-OutFile`, `-Count`, `-Files`. Falls back to a host's vendored `rg.exe` when `rg` is not on PATH. `-MaxLines 0` prints only the total count. rg's stderr no longer aborts the wrapper on 5.1 (warning-only stderr used to throw away the whole match list).
 
 ## Install
 

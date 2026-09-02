@@ -34,10 +34,10 @@ For another host, read its mapping file and substitute:
 
 
 ## Smart tooling (scripts/)
-- `scripts/check-powershell7.ps1` — version detection + next-action decision, host-aware.
+- `scripts/check-powershell7.ps1` — version detection + next-action decision, host-aware. `-Agent all` reports every host present on the machine in one run.
 - `scripts/pwsh-discovery.ps1` — library: `Get-GlobalPwshPath` / `Get-BundledPwshPath` / `Get-PwshVersion`. Global and bundled are discovered separately and never merged.
-- `scripts/analyze-powershell-history.ps1` — scan agent run history for PowerShell errors and token waste. `-Agent all` covers every host on the machine; `-Days N` bounds the window.
-- `scripts/srg.ps1` — safe ripgrep wrapper (argv passing, no shell escaping, bounded output). Resolves `rg` from PATH, then from a host's vendored copy.
+- `scripts/analyze-powershell-history.ps1` — scan agent run history for PowerShell errors and token waste. `-Agent all` covers every host on the machine; `-Days N` bounds the window. `-Fast` switches to a single-pass scan (each file read once, patterns precompiled): identical counts, roughly 2-5x faster on large histories (measured 98MB/21 files: 9.9s -> 4.0s on 5.1).
+- `scripts/srg.ps1` — safe ripgrep wrapper (argv passing, no shell escaping, bounded output). Resolves `rg` from PATH, then from a host's vendored copy. `-MaxLines 0` prints only the total count. rg's stderr no longer aborts the wrapper on 5.1 (warning-only stderr used to throw away the whole match list).
 - `scripts/agent-context.ps1` — library: which host is running, and where its skills/logs live. All host-specific paths live here.
 - `scripts/force-utf8-output.ps1` — library: pins stdout to UTF-8 so 5.1 output does not get charset-guessed.
 

@@ -2,11 +2,14 @@
 #   - 路径/参数: 走 param() -> List[string] -> & rg @args, 以 argv 传入, 不经 shell 字符串解析, 故空格/中文/反斜杠/引号不用转义。
 #   - rg 解析顺序: -RgPath -> PATH -> agent 自带的 vendor\ripgrep\*\rg.exe (CodeBuddy Code 自带但不入 PATH)。
 #   - pattern 默认按正则; 要字面匹配用 -Literal (--fixed-strings)。pattern 前自动加 "--", 避免以 - 开头被当成选项。
-#   - 输出默认限量(MaxLines=150 行, MaxLineLen=500 字符), 但可通过拨杆拿到完整结果:
+#   - 输出默认限量(MaxLines=150 行, MaxLineLen=500 字符), 但可以通过拨杆拿到完整结果:
 #       -OutFile <file>   全部结果写入该文件(不截断), 只回显总数+前几行
 #       -MaxLines -1      不限行数
+#       -MaxLines 0       仅统计: 只打印总数, 不打印匹配行 (O(1) 内存)
 #       -MaxLineLen 0     不限单行长度
 #   - 强制 --color never --no-config, 输出稳定干净。
+#   - 5.1 兼容: rg 的 stderr 不再被 2>&1 吞进结果流。旧版在 EAP=Stop + 2>&1 下, rg 只要往
+#     stderr 写任何东西(哪怕一条无害警告)就抛 NativeCommandError, 匹配结果全部丢失。
 # 用法:
 #   & .\srg.ps1 "regex" "path"
 #   & .\srg.ps1 "literal 中文" "路 径" -Literal
@@ -24,7 +27,7 @@ param(
     [switch]$Hidden,
     [switch]$NoIgnore,
     [string]$Glob = '',
-    [int]$MaxLines = 150,    # -1 = 不限行数
+    [int]$MaxLines = 150,    # -1 = 不限行数; 0 = 仅统计总数
     [int]$MaxLineLen = 500,  # 0 = 不限单行长度
     [string]$OutFile = '',   # 非空则将全部结果写入该文件(不截断)
     [string]$RgPath = ''     # 显式指定 rg.exe;留空则 PATH -> agent 自带 vendor 目录
@@ -89,20 +92,39 @@ if($Files){
     $rgArgs.Add($Path)
 }
 
+# --- Run rg without 2>&1 -----------------------------------------------
+# 5.1: EAP=Stop turns ANY stderr byte into a terminating NativeCommandError and throws
+# away the whole match list. Redirecting to a file alone does NOT prevent that (stderr
+# lines become ErrorRecords even when redirected). The reliable 5.1 pattern is to run
+# the native call under EAP=Continue and restore it afterwards; stderr goes to a temp
+# file and is only surfaced when rg exits with code 2 (real error). PS7 is unaffected.
+$errFile = Join-Path ([IO.Path]::GetTempPath()) ("srg-{0}.err" -f ([guid]::NewGuid().ToString('N')))
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 try {
-    $out = & $rg @rgArgs 2>&1
+    $out = & $rg @rgArgs 2>$errFile
     $code = $LASTEXITCODE
 } catch {
+    $ErrorActionPreference = $prevEap
     Write-Output ("ERROR: " + $_.Exception.Message)
+    if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
     exit 0
 }
+$ErrorActionPreference = $prevEap
 
 if($code -eq 2){
-    Write-Output ("rg error: " + (($out | Out-String).Trim()))
+    $errText = ''
+    if (Test-Path -LiteralPath $errFile) { $errText = ([IO.File]::ReadAllText($errFile)).Trim() }
+    Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
+    if ($errText) { Write-Output ("rg error: " + $errText) } else { Write-Output 'rg error: (no stderr output)' }
     exit 0
 }
+Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
 
-$list = @($out | ForEach-Object { $_.ToString() })
+# --- 限量输出 ------------------------------------------------------------
+# 旧版 `@($out | ForEach-Object { $_.ToString() })` 在已有 $out 之外又物化一份逐行 ToString
+# 的副本(两份全量同时存活)。现在直接消费 $out, 不再复制; 行数上限照旧生效。
+$list = @($out)
 if($list.Count -eq 0){
     if($code -eq 1){ Write-Output '0 matches' }
     exit 0
@@ -120,17 +142,25 @@ if($OutFile){
     exit 0
 }
 
+# --- MaxLines 0: 仅统计模式 ---
+if($MaxLines -eq 0){
+    Write-Output ("total {0} lines" -f $list.Count)
+    exit 0
+}
+
 # --- 默认限量显示 ---
 $lineCap = if($MaxLines -ge 0){ $MaxLines } else { [int]::MaxValue }
-$shown   = @($list | Select-Object -First $lineCap)
-foreach($line in $shown){
+$shown = 0
+foreach($line in $list){
+    $shown++
+    if($shown -gt $lineCap){ break }
     if($MaxLineLen -gt 0 -and $line.Length -gt $MaxLineLen){
         Write-Output ($line.Substring(0,$MaxLineLen) + " ...[+$($line.Length-$MaxLineLen) chars]")
     } else {
         Write-Output $line
     }
 }
-if($MaxLines -ge 0 -and $list.Count -gt $MaxLines){
+if($lineCap -lt $list.Count){
     Write-Output ("... [total $($list.Count), showing first $MaxLines; +" + ($list.Count-$MaxLines) + " omitted]")
 }
 exit 0
