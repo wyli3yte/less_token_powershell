@@ -1,24 +1,82 @@
+<div align="center">
+
 # Windows PowerShell 7 Setup
 
-**Your agent is probably running Windows PowerShell 5.1 right now** — quietly failing on `&&`, `??` and UTF-8 output.
+**Your agent is running Windows PowerShell 5.1 right now. It will not tell you.**
 
-This skill detects the PowerShell your agent actually uses, gets a **global** PowerShell 7 onto the machine, switches the agent onto it, and verifies the result.
+One install puts a **global** PowerShell 7 on the machine, switches the agent onto it, and proves it —
+because an agent's bundled copy is not an install.
 
-```text
-before   标记"&&"不是此版本中的有效语句分隔符。      <- ParserError on 5.1
-after    7.6.5 / Core                                <- same command, global pwsh 7
+<p>
+  <a href="https://github.com/wyli3yte/less_token_powershell/stargazers"><img src="https://img.shields.io/github/stars/wyli3yte/less_token_powershell?style=flat&color=yellow" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/wyli3yte/less_token_powershell?style=flat" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078d4?style=flat" alt="Platform: Windows">
+  <img src="https://img.shields.io/badge/runs%20on-PowerShell%205.1-2da44e?style=flat" alt="Runs on PowerShell 5.1">
+</p>
+
+<p>
+  <a href="#the-problem"><strong>The problem</strong></a> ·
+  <a href="#quick-install"><strong>Install</strong></a> ·
+  <a href="#verify-in-one-command"><strong>Verify</strong></a> ·
+  <a href="#proof-before-and-after-on-a-real-machine"><strong>Proof</strong></a> ·
+  <a href="#faq"><strong>FAQ</strong></a> ·
+  <a href="#reference"><strong>Reference</strong></a>
+</p>
+
+</div>
+
+---
+
+## At a glance
+
+| | |
+|---|---|
+| Hosts covered | **3** — Codex, CodeBuddy Code, Claude Code, from one copy |
+| User-facing scripts | **3** (+3 libraries), all host-aware via `-Agent` |
+| Minimum shell to run it | **Windows PowerShell 5.1** — the scripts work on the thing they diagnose |
+| The pass condition | **a global pwsh 7**, never an agent's private copy |
+| Time to install | one command, under a minute |
+
+## The problem
+
+Ask three agents on one Windows machine "which PowerShell are you on?" and you get three different answers — and two of them are wrong in a way that looks like success.
+
+| State | What you see | Verdict |
+|---|---|---|
+| System **5.1** (the default for most agents) | `标记"&&"不是此版本中的有效语句分隔符。` on the first PS7-only command | **not done** |
+| An agent's **bundled** pwsh 7 (Codex ships one) | everything works — until that agent upgrades and the path disappears | **not done** |
+| A **global** pwsh 7 | PS7 syntax parses, the path is stable, every agent and terminal benefits | **done** |
+
+> [!IMPORTANT]
+> **A bundled pwsh 7 is not a global install.** It lives in one agent's runtime cache, it is versioned by that agent, and it vanishes when the agent upgrades. Counting it as done produces a false "already installed" verdict — and skips the install this skill exists to perform.
+
+## The solution: global first
+
+The skill stops at the first rung that applies, and prints the next action every time:
+
+```
+1. Run check-powershell7.ps1            -> the verdict, in three sections
+2. No global pwsh 7?                    -> install the MSI (machine scope)
+3. Global pwsh 7, agent still on 5.1?   -> switch the agent, restart
+4. Agent on a bundled copy?             -> repoint it at the global path
+5. Re-run the check                     -> until it prints a global path AND Core
 ```
 
-## Highlights
+Every step is a decision the script makes for you, with a paste-ready value for *your* host.
 
-- **One install, every agent and every terminal.** It targets a *global* pwsh 7, not one agent's private copy.
-- **It won't call a bundled copy "done."** Codex ships its own pwsh 7; that copy vanishes when Codex upgrades, so it's reported as reference only.
-- **It prints the next action**, with a paste-ready value for *your* host: install, switch, or done.
-- **One skill, three hosts.** Codex, CodeBuddy Code and Claude Code share a single copy — host differences live in one library, no forks.
-- **It measures what 5.1 already cost you.** Scans past sessions for ParserError and PS7-syntax-on-5.1 failures across every host.
-- **It ships safe Windows tooling.** `srg.ps1` passes argv instead of shell-escaping, so spaces, CJK and backslashes stop breaking searches.
+## Why this skill?
 
-## Install
+Because "the PowerShell version" is not one fact on a Windows machine. Verified on a real box: CodeBuddy Code's PowerShell tool resolves the system `powershell.exe` (5.1.26100.9168 / `Desktop`), while Codex, on the same machine, runs its own bundled pwsh 7.6.4 out of `~/.cache/codex-runtimes`. Same box, same question, two answers — and a scan of that machine's session history found **3 of 14** CodeBuddy sessions had already died on PS7-only syntax.
+
+| Principle | Implementation |
+|---|---|
+| Global means global | `Get-GlobalPwshPath` (MSI, registry, Appx, PATH) and `Get-BundledPwshPath` are discovered separately and **never merged** |
+| Trust measurement, not assumption | The verdict comes from the running process and the machine, not from `which pwsh` |
+| One skill, several hosts | Every host-specific path lives in `agent-context.ps1`; the scripts stay generic — no forks |
+| Prove the fix | Re-run the check; then re-run the history scan weeks later and count new sessions |
+| Stay usable on the broken thing | Libraries are ASCII-only, user-facing scripts are UTF-8 **with BOM**, all output is pinned to UTF-8 |
+
+## Quick install
 
 ```powershell
 powershell -File install.ps1              # every host present on the machine
@@ -31,7 +89,7 @@ powershell -File install.ps1 -Agent auto  # only the host running this process
 | CodeBuddy Code | `~/.codebuddy/skills/...` | `CODEBUDDY_POWERSHELL_PATH` |
 | Claude Code | `~/.claude/skills/...` | none — its Bash tool is Git Bash; it benefits from pwsh 7 on PATH |
 
-Add `-Clean` to wipe the destination before copying (destructive).
+Add `-Clean` to wipe the destination before copying (destructive). Installing needs no elevation; installing PowerShell itself does.
 
 ## Verify in one command
 
@@ -56,7 +114,20 @@ bundled : C:\Users\<user>\.cache\codex-runtimes\...\pwsh.exe  (v7.6.4)
 NEXT: 已是全局 PowerShell 7 (Core)，无需处理。
 ```
 
-Only a `global :` path counts as done. Anything else prints the exact command to fix it.
+Only a `global :` path counts as done. When the agent is still on 5.1, the same script says so and hands you the lever — this is it run **under `powershell.exe` 5.1** (the scripts run on the thing they diagnose):
+
+```text
+=== 1) Agent 实际使用的 shell(本进程) ===
+Agent  : codebuddy
+Version: 5.1.26100.9168
+Edition: Desktop
+ExePath: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe
+=== 2) 全局 PowerShell 7 (判定依据) ===
+global  : C:\Program Files\PowerShell\7\pwsh.exe  (v7.6.5)  [scope=machine, via=machine-path]
+=== 3) 判断 ===
+NEXT: 全局 PowerShell 7 已就位，但本 agent 仍在跑 5.1 -> 把 agent 切过去，再重跑本脚本验证。
+      codebuddy 的切换方式: 设置 CODEBUDDY_POWERSHELL_PATH = "C:\Program Files\PowerShell\7\pwsh.exe" (优先于自动检测)，然后重启 agent。
+```
 
 ## The scripts
 
@@ -66,7 +137,7 @@ Only a `global :` path counts as done. Anything else prints the exact command to
 | `analyze-powershell-history.ps1` | You want to know what 5.1 already cost you. `-Agent all -Days 30` scans every host. |
 | `srg.ps1` | You need ripgrep with argv passing and bounded output: `-Literal`, `-OutFile`, `-Count`, `-Files`. |
 
-All three take `-Agent auto|codex|codebuddy|claude|all`, and all three run on 5.1 themselves — that is the point.
+All three take `-Agent auto|codex|codebuddy|claude|all`.
 
 ## Proof: before and after on a real machine
 
@@ -110,7 +181,7 @@ sandbox/权限拒绝 (deny/ACL)          : 2 个文件命中
 
 ### With the skill
 
-Install the MSI (machine scope), point the agent's shell at it, restart, re-run the check. Then the same probe, in the agent's own shell:
+Install the MSI (machine scope), set the override the check printed, restart, re-run. Then the same probe, in the agent's own shell:
 
 ```powershell
 $PSVersionTable.PSVersion.ToString() + ' / ' + $PSVersionTable.PSEdition; 1 -eq 1 && 'ok'
@@ -125,35 +196,98 @@ $PSVersionTable.PSVersion.ToString() + ' / ' + $PSVersionTable.PSEdition; 1 -eq 
 | `1 -eq 1 && 'ok'` | ParserError, exit 1 | `True` / `ok` |
 | PS7-on-5.1 failures in history | 3 of 14 sessions | 0 new (count sessions after the switch) |
 
-Re-run the scan a few weeks later: sessions created after the switch should add **zero** new "PS7 语法跑在 5.1 上" hits. Old hits never disappear — the scan reads historical transcripts.
+> [!NOTE]
+> **How to read the last row.** The scan reads historical transcripts, so old hits never disappear — judge by sessions created *after* the switch. One machine is one data point, not a benchmark; it is here to show the failure mode and the verification loop, not to generalise.
 
-## Why 5.1 is the default trap
+## When to use
 
-- PowerShell 7 can be present without being installed globally: Codex ships its own at `%USERPROFILE%\.cache\codex-runtimes\*\dependencies\native\powershell\pwsh.exe`. Count it as global and you get a false "already done" that skips the install this skill exists to perform.
-- `&&`, `||`, `??`, `?.` and ternary are PowerShell 7 only. On 5.1 they raise `is not a valid statement separator in this version`.
-- `.ps1` files containing non-ASCII **must** be UTF-8 **with BOM**, or 5.1 decodes them in the ANSI code page and dies with `ParserError` — including the scripts meant to diagnose it.
-- 5.1 writes stdout in the console code page, so agents charset-guess it and get it wrong on mostly-ASCII lines. `force-utf8-output.ps1` pins output to UTF-8.
+**Reach for this skill when:**
+
+- A Windows command fails with `ParserError`, `MissingEndCurlyBrace`, or `is not a valid statement separator in this version`
+- You need to know which PowerShell your agent is actually running
+- `&&`, `||`, `??`, `?.` or a ternary works in your terminal but not in the agent
+- Two agents disagree about what "the PowerShell version" is
+- You are about to install PowerShell 7 and want the install to serve every agent, not one
+
+**You do not need it if:** the machine already has a machine-scope pwsh 7 and every agent resolves it — the check confirms that in one command.
+
+<a id="faq"></a>
+
+## FAQ
 
 <details>
-<summary>Repository layout</summary>
+<summary><strong>Will installing PowerShell 7 break my existing 5.1 scripts?</strong></summary>
+
+No. PowerShell 7 installs side by side with Windows PowerShell 5.1 into its own directory (`C:\Program Files\PowerShell\7\` by default) and does not replace or remove 5.1. Scripts that call `powershell.exe` keep running on 5.1.
+
+</details>
+
+<details>
+<summary><strong>Why isn't putting pwsh on PATH enough?</strong></summary>
+
+Because a host that resolves an absolute exe path ignores PATH order entirely — which is exactly what a PowerShell tool or an exec launcher does. PATH ordering helps interactive terminals; the shell override is what moves the agent.
+
+</details>
+
+<details>
+<summary><strong>Can I just point the agent at Codex's bundled pwsh instead of installing?</strong></summary>
+
+You can, and the check script prints that path so you can unblock immediately. The trade-off: it is Codex's versioned runtime cache (`codex-primary-runtime`), so Codex upgrading or pruning it leaves your override pointing at nothing. Use it to unblock; install the MSI for a stable path.
+
+</details>
+
+<details>
+<summary><strong>What if I cannot install (no admin, no network)?</strong></summary>
+
+The skill degrades gracefully: it still detects the real state and still tells you the next action, and `analyze-powershell-history.ps1` still measures the damage. The MSI route and its per-user alternatives are documented in [`skill/references/install-powershell7.md`](skill/references/install-powershell7.md). Installing software or switching the shell needs approval — nothing installs itself.
+
+</details>
+
+<details>
+<summary><strong>Do the diagnostic scripts really run on 5.1?</strong></summary>
+
+Yes — verified. `powershell.exe -File skill\scripts\check-powershell7.ps1` runs on 5.1 and prints the switch lever for the detected host. That is why the libraries are ASCII-only, why the user-facing scripts are UTF-8 **with BOM** (5.1 decodes BOM-less files in the ANSI code page and dies with `ParserError`), and why every script pins stdout to UTF-8.
+
+</details>
+
+<details>
+<summary><strong>Why is Codex detected before Claude Code?</strong></summary>
+
+Because CodeBuddy Code is a Claude Code fork and **also** sets `CLAUDE_SESSION_ID` / `CLAUDE_PROJECT_DIR`. `agent-context.ps1` checks `CODEBUDDY_*` first, then `CODEX_HOME`, then `CLAUDE_*` — reorder that chain and every CodeBuddy session is misdetected as claude.
+
+</details>
+
+<a id="reference"></a>
+
+## Reference
+
+| Doc | What it covers |
+|---|---|
+| [`skill/SKILL.md`](skill/SKILL.md) | The skill itself: decision order, key facts, constraints |
+| [`skill/references/install-powershell7.md`](skill/references/install-powershell7.md) | MSI vs MSIX, install routes, why the MSI path is stable |
+| [`skill/references/codebuddy-tools.md`](skill/references/codebuddy-tools.md) | CodeBuddy Code paths, settings, env vars |
+| [`skill/references/claude-tools.md`](skill/references/claude-tools.md) | Claude Code paths, Git Bash shell, detection caveat |
+
+<details>
+<summary><strong>Repository layout</strong></summary>
 
 ```text
 .
-├── install.ps1
+├── install.ps1                    # install for one host or every host present
 ├── skill/
 │   ├── SKILL.md
 │   ├── agents/openai.yaml
 │   ├── scripts/
-│   │   ├── check-powershell7.ps1
-│   │   ├── analyze-powershell-history.ps1
-│   │   ├── srg.ps1
-│   │   ├── pwsh-discovery.ps1       # global vs bundled PS7 discovery (no BOM: ASCII only)
-│   │   ├── agent-context.ps1        # host detection + paths (no BOM: ASCII only)
-│   │   └── force-utf8-output.ps1    # pin stdout to UTF-8 (no BOM: ASCII only)
+│   │   ├── check-powershell7.ps1          # verdict + next action
+│   │   ├── analyze-powershell-history.ps1 # scan past sessions for PS failures
+│   │   ├── srg.ps1                        # safe ripgrep wrapper (argv, bounded output)
+│   │   ├── pwsh-discovery.ps1             # global vs bundled discovery (ASCII only, no BOM)
+│   │   ├── agent-context.ps1              # host detection + paths (ASCII only, no BOM)
+│   │   └── force-utf8-output.ps1          # pin stdout to UTF-8 (ASCII only, no BOM)
 │   └── references/
 │       ├── install-powershell7.md
-│       ├── codebuddy-tools.md       # CodeBuddy Code path/setting mapping
-│       └── claude-tools.md          # Claude Code path/setting mapping
+│       ├── codebuddy-tools.md
+│       └── claude-tools.md
 ├── README.md
 └── LICENSE
 ```
