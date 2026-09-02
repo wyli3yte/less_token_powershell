@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    # auto = the agent host running this process; all = every host present on the machine
-    [ValidateSet('auto', 'codex', 'codebuddy', 'all')][string]$Agent = 'auto',
+    # all (default) = every host present on the machine; auto = only the host running this process
+    [ValidateSet('auto', 'codex', 'codebuddy', 'claude', 'all')][string]$Agent = 'all',
     # Remove the destination first instead of copying over it. Destructive: only stale
     # files from a previous version are lost, but it does delete a directory.
     [switch]$Clean

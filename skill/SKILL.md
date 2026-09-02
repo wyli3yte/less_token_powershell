@@ -10,10 +10,11 @@ On Windows "PowerShell" is ambiguous: the system default `powershell.exe` is Win
 
 ## Platform adaptation
 This document is written against Codex paths and settings. The scripts themselves are host-aware
-(`-Agent auto|codex|codebuddy|all`, resolved by `scripts/agent-context.ps1`), so do not fork them.
+(`-Agent auto|codex|codebuddy|claude|all`, resolved by `scripts/agent-context.ps1`), so do not fork them.
 For another host, read its mapping file and substitute:
 
 - CodeBuddy Code -> `references/codebuddy-tools.md`
+- Claude Code -> `references/claude-tools.md`
 
 ## Decision order
 1. Run `scripts/check-powershell7.ps1`. It prints the agent's own shell, every **global** PowerShell 7 (this is the verdict), any **agent-bundled** copy (reference only), and the next action.

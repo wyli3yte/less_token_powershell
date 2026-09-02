@@ -14,17 +14,23 @@ function Get-AgentHomeDefault {
             # CODEBUDDY_CONFIG_DIR is the documented override for config/data location.
             if ($env:CODEBUDDY_CONFIG_DIR) { $env:CODEBUDDY_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.codebuddy' }
         }
+        'claude' {
+            if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+        }
     }
 }
 
 # Which agent is running THIS process? Runtime env vars are authoritative;
 # fall back to the exe path, then to whichever home directory exists.
+# CodeBuddy (a Claude Code fork) also sets CLAUDE_* vars, so claude must be checked AFTER codebuddy.
 function Get-RunningAgentName {
     if ($env:CODEBUDDY_SESSION_ID -or $env:CODEBUDDY_PROJECT_DIR) { return 'codebuddy' }
     if ($env:CODEX_HOME) { return 'codex' }
+    if ($env:CLAUDE_SESSION_ID -or $env:CLAUDE_PROJECT_DIR) { return 'claude' }
     $p = (Get-Process -Id $PID).Path
     if ($p -match 'codex')     { return 'codex' }
     if ($p -match 'codebuddy') { return 'codebuddy' }
+    if ($p -match 'claude')    { return 'claude' }
     return ''
 }
 
@@ -38,9 +44,10 @@ function New-AgentContext {
     # Session transcript layout differs per host:
     #   codex     -> <home>\sessions\**\*.jsonl
     #   codebuddy -> <home>\projects\<project-slug>\*.jsonl
-    if ($Name -eq 'codebuddy') {
+    #   claude    -> <home>\projects\<project-slug>\*.jsonl (same layout; codebuddy forked from it)
+    if ($Name -eq 'codebuddy' -or $Name -eq 'claude') {
         $logRoot  = Join-Path $agentHome 'projects'
-        $shellVar = 'CODEBUDDY_POWERSHELL_PATH'
+        $shellVar = if ($Name -eq 'codebuddy') { 'CODEBUDDY_POWERSHELL_PATH' } else { '' }
     } else {
         $logRoot  = Join-Path $agentHome 'sessions'
         $shellVar = ''
@@ -57,17 +64,17 @@ function New-AgentContext {
 
 # -Agent auto      -> the host running this process
 # -Agent all       -> every host whose home directory exists on this machine
-# -Agent codex|codebuddy -> that host explicitly
+# -Agent codex|codebuddy|claude -> that host explicitly
 function Get-AgentContext {
     [CmdletBinding()]
     param(
-        [ValidateSet('auto', 'codex', 'codebuddy', 'all')][string]$Agent = 'auto',
+        [ValidateSet('auto', 'codex', 'codebuddy', 'claude', 'all')][string]$Agent = 'auto',
         [string]$AgentHome = ''
     )
 
     if ($Agent -eq 'all') {
         $out = @()
-        foreach ($n in @('codex', 'codebuddy')) {
+        foreach ($n in @('codex', 'codebuddy', 'claude')) {
             $c = New-AgentContext -Name $n
             if (Test-Path -LiteralPath $c.Home) { $out += $c }
         }
@@ -78,7 +85,7 @@ function Get-AgentContext {
     if ($name -eq 'auto') {
         $name = Get-RunningAgentName
         if (-not $name) {
-            foreach ($cand in @('codebuddy', 'codex')) {
+            foreach ($cand in @('codebuddy', 'codex', 'claude')) {
                 if (Test-Path -LiteralPath (Get-AgentHomeDefault $cand)) { $name = $cand; break }
             }
         }

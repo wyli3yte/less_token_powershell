@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [int]$Days = 30,
-    [ValidateSet('auto', 'codex', 'codebuddy', 'all')][string]$Agent = 'auto',
+    [ValidateSet('auto', 'codex', 'codebuddy', 'claude', 'all')][string]$Agent = 'auto',
     [Alias('CodexHome')][string]$AgentHome = ''
 )
 

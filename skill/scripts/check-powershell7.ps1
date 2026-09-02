@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('auto', 'codex', 'codebuddy')][string]$Agent = 'auto'
+    [ValidateSet('auto', 'codex', 'codebuddy', 'claude')][string]$Agent = 'auto'
 )
 
 . (Join-Path $PSScriptRoot 'agent-context.ps1')
